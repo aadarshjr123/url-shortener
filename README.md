@@ -215,5 +215,104 @@ This project demonstrates:
 
 ------------------------------------------------------------------------
 
+
+
+# Phase 3 – Redis Integration & System Design Notes
+
+## Redis Integration Overview
+
+Redirect Flow:
+
+Client → API  
+→ Check Redis Cache  
+→ If cache hit → Redirect  
+→ If cache miss → Query DB → Store in Redis → Redirect  
+
+Redis is used as a read-through cache to reduce database load and improve latency.
+
+---
+
+## Redis Failure Handling
+
+### What happens if Redis crashes?
+
+- Cache becomes unavailable
+- All redirect requests fall back to the database
+- Latency increases
+- System remains functional (graceful degradation)
+
+Redis is a performance optimization layer — the database remains the source of truth.
+
+---
+
+## Cache TTL Strategy
+
+TTL (Time To Live) determines how long a key stays in cache.
+
+Why use TTL?
+
+- Prevent stale data
+- Control memory usage
+- Automatically clean unused entries
+
+For URL shorteners:
+- URLs rarely change
+- TTL can be long (1 hour to 24 hours depending on traffic pattern)
+
+Example:
+redis_client.set(short_code, original_url, ex=3600)
+
+This stores the key for 1 hour.
+
+---
+
+## Hot Key Problem
+
+A hot key occurs when one short URL becomes extremely popular (viral link).
+
+Problem:
+- Millions of requests hit the same Redis key
+- That Redis instance becomes a bottleneck
+
+Possible Solutions:
+- Redis replication
+- Distributed cache cluster
+- Load balancing
+- Key partitioning strategies
+
+---
+
+## Click Count Update Strategy
+
+Should click_count update be synchronous?
+
+No.
+
+If we increment the database counter on every redirect:
+- High write load
+- Increased latency
+- DB becomes bottleneck
+
+Better approach:
+- Push click event to a background queue
+- Batch process updates asynchronously
+
+This keeps the redirect path fast and scalable.
+
+---
+
+## Summary
+
+This phase introduces:
+
+- Redis caching for read-heavy optimization
+- TTL strategy for memory control
+- Graceful degradation when cache fails
+- Hot key awareness
+- Asynchronous thinking for analytics
+
+The system is now transitioning from a simple CRUD application to a scalable backend service.
+
+
 This project is designed to reflect production-grade system design and
 backend engineering principles.
