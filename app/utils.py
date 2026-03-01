@@ -10,7 +10,7 @@ def encode_base62(num):
     base = len(BASE62)
 
     while num >0:
-        reminder = num % base
-        result.append(BASE62[reminder])
+        remainder = num % base
+        result.append(BASE62[remainder])
         num //= base
     return ''.join(reversed(result))

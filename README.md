@@ -1,318 +1,210 @@
-# Scalable URL Shortener
+# 🚀 Scalable URL Shortener
 
-## 1. Problem Statement
+A production-grade URL shortening service built with scalability,
+performance, and system design principles in mind.
 
-Design and implement a production-grade URL shortening service that:
-
--   Accepts a long URL and generates a unique, compact short URL
--   Redirects users from the short URL to the original destination
--   Handles high read traffic with low latency
--   Scales horizontally under increasing load
--   Ensures high availability and fault tolerance
-
-This system is read-heavy, latency-sensitive, and must be optimized for
-large-scale traffic patterns.
+This project is intentionally designed as a read-heavy distributed
+system, optimized for low-latency redirects and horizontal scalability.
 
 ------------------------------------------------------------------------
 
-## 2. Functional Requirements
+# 1️⃣ Problem Statement
 
-### Core Features
+Design and implement a scalable URL shortening service that:
 
--   Generate a unique short URL for a given long URL
--   Redirect short URL to original URL
--   Guarantee uniqueness of generated short codes
--   Persist mappings reliably in a database
+-   Generates compact, unique short URLs
+-   Redirects users with minimal latency
+-   Handles millions of redirect requests
+-   Scales horizontally
+-   Maintains high availability
+-   Optimizes read-heavy workloads
 
-### Optional Features (Phase 2)
-
--   Custom alias support
--   Expiration time for links
--   Click analytics (visit counter)
--   Link disabling / soft delete
--   Rate limiting per client
+This system prioritizes redirect performance, since one shortened link
+may be accessed millions of times.
 
 ------------------------------------------------------------------------
 
-## 3. Non-Functional Requirements
+# 2️⃣ System Characteristics
 
-### Performance
-
--   Redirect latency \< 50ms
--   High read throughput (millions of requests per day)
--   Efficient database lookups
-
-### Scalability
-
--   Horizontally scalable API layer
--   Support database sharding
--   Caching layer for hot URLs
--   Stateless application servers
-
-### Reliability
-
--   No duplicate short codes
--   Graceful failure handling
--   Minimal downtime during deployments
-
-### Storage Efficiency
-
--   Indexed `short_code` column
--   Compact ID representation using Base62 encoding
-
-------------------------------------------------------------------------
-
-## 4. Traffic Characteristics
-
-This system is:
-
--   Write-light (shorten operation occurs once)
--   Read-heavy (redirect operation occurs potentially millions of times)
+-   Write-light system (shorten once)
+-   Read-heavy system (redirect many times)
+-   Latency-sensitive
+-   High concurrency environment
+-   Stateless API layer
 
 Example:
 
 1 URL shortened once\
-→ 2 million redirects
+→ 2 million redirect requests
 
-Therefore:
-
-The redirect path is the critical performance path and must be
-optimized.
+Redirect path is the critical performance path.
 
 ------------------------------------------------------------------------
 
-## 5. High-Level Architecture
+# 3️⃣ High-Level Architecture
 
-### Shorten Flow (Write Path)
-
-Client → API → Insert into DB → Generate ID → Base62 Encode → Update
-short_code → Return short URL
-
-Characteristics: - Low frequency - Requires uniqueness guarantee - Must
-return consistent short code
+Client\
+↓\
+Load Balancer\
+↓\
+FastAPI Application (Stateless)\
+↓\
+---------------------------------\
+Redis (Cache Layer)\
+PostgreSQL (Primary Database)\
+---------------------------------
 
 ------------------------------------------------------------------------
 
-### Redirect Flow (Read Path -- Critical)
+## 🔹 Shorten Flow (Write Path)
 
-Client → API\
+Client → API → Rate Limit Check\
+→ Insert into DB\
+→ Generate ID\
+→ Base62 Encode\
+→ Update short_code\
+→ Return short URL
+
+------------------------------------------------------------------------
+
+## 🔹 Redirect Flow (Read Path --- Critical)
+
+Client → API → Rate Limit Check\
 → Check Redis Cache\
-→ If cache hit → Redirect\
-→ If cache miss → Query DB → Store in Cache → Redirect
-
-Characteristics: - Extremely high frequency - Must be optimized for
-latency - Caching significantly reduces DB load
+→ Cache Hit → Redirect\
+→ Cache Miss → DB Lookup → Cache → Redirect\
+→ Async Click Increment
 
 ------------------------------------------------------------------------
 
-## 6. ID Generation Strategy
+# 4️⃣ Tech Stack
 
-### Approach:
+-   FastAPI --- API layer\
+-   PostgreSQL --- Persistent storage\
+-   Redis --- Cache + rate limiting\
+-   SQLAlchemy --- ORM\
+-   Uvicorn --- ASGI server
 
-Auto-increment primary key + Base62 encoding
+Architecture Layers:
 
-Why this approach?
+Router Layer → HTTP\
+Service Layer → Business Logic\
+Repository Layer → DB Access
 
--   Guaranteed uniqueness via database primary key
--   No collision handling logic required
--   Compact URL representation
--   Easy to shard in the future
+------------------------------------------------------------------------
 
-### Example
+# 5️⃣ ID Generation Strategy
+
+Auto-increment primary key + Base62 encoding.
+
+Why: - Guaranteed uniqueness - No collision handling - Compact
+representation - Future sharding support
+
+Example:
 
 Database ID: 12500\
 Base62(12500) → dnh
 
-Short URL: short.ly/dnh
-
 ------------------------------------------------------------------------
 
-## 7. Database Schema
+# 6️⃣ Database Schema
 
-### Table: urls
+Table: urls
 
--   id (BIGINT PRIMARY KEY)
+-   id (BIGINT, Primary Key)
 -   short_code (VARCHAR(10), UNIQUE, INDEXED)
 -   original_url (TEXT, NOT NULL)
 -   created_at (TIMESTAMP, DEFAULT NOW())
 -   expires_at (TIMESTAMP, nullable)
 -   click_count (BIGINT, DEFAULT 0)
 
-### Why Index short_code?
-
-Redirect query:
-
-SELECT original_url FROM urls WHERE short_code = 'abc123';
-
-Without index → Full table scan (O(N))\
-With index → B-tree lookup (O(log N))
-
-This is critical for large-scale datasets.
+Indexing short_code ensures O(log N) lookup performance.
 
 ------------------------------------------------------------------------
 
-## 8. Bottlenecks & Failure Considerations
+# 7️⃣ Caching Strategy (Redis)
 
-### What if 1M users hit the same link?
+Read-through cache:
 
-Without caching: - Database becomes bottleneck - High CPU usage -
-Possible downtime
+-   First request → DB → Cache
+-   Subsequent requests → Redis
 
-With Redis caching: - First request populates cache - Remaining requests
-served from memory - Drastically reduced DB load
+TTL Strategy: - If expires_at exists → TTL = remaining time - Otherwise
+→ Default 1 hour
 
-### What if Redis goes down?
-
--   System falls back to database
--   Higher latency
--   Service still functional (graceful degradation)
+Ensures no stale data and memory control.
 
 ------------------------------------------------------------------------
 
-## 9. Scaling Strategy
+# 8️⃣ Rate Limiting
 
-Future improvements:
+Redis-based atomic counters.
 
--   Add Redis for read-through caching
--   Add read replicas for heavy traffic
--   Introduce consistent hashing for DB sharding
--   Move click counting to asynchronous processing
--   Add CDN layer for global redirect optimization
--   Implement rate limiting at API gateway
+-   Configurable per route
+-   Separate limits for shorten and redirect
+-   Returns 429 Too Many Requests
+-   Includes Retry-After header
 
-------------------------------------------------------------------------
-
-## 10. Observability & Monitoring (Future Phase)
-
--   Request latency metrics
--   Cache hit/miss ratio
--   DB query performance monitoring
--   Error rate tracking
--   Distributed tracing
+Protects system stability.
 
 ------------------------------------------------------------------------
 
-## 11. Tech Stack
+# 9️⃣ Async Click Tracking
 
--   FastAPI (API Layer)
--   PostgreSQL (Persistent Storage)
--   Redis (Caching Layer -- Phase 2)
--   SQLAlchemy (ORM)
--   Uvicorn (ASGI Server)
+Click count updates run in background tasks.
 
-------------------------------------------------------------------------
-
-## 12. Project Goals
-
-This project demonstrates:
-
--   Read-heavy system optimization
--   ID generation and encoding strategies
--   Database indexing and schema design
--   Caching integration strategy
--   Scalability thinking
--   Backend production mindset
+Benefits: - Redirect path remains fast - Write-heavy operations
+isolated - Easily extendable to queue-based processing
 
 ------------------------------------------------------------------------
 
+# 🔟 Failure Handling
 
+Redis Failure: - Falls back to DB - Higher latency but functional
 
-# Phase 3 – Redis Integration & System Design Notes
+PostgreSQL Failure: - Writes fail - Redirect may fail if not cached
 
-## Redis Integration Overview
+API Failure: - Load balancer routes traffic to healthy instances
 
-Redirect Flow:
+------------------------------------------------------------------------
 
-Client → API  
-→ Check Redis Cache  
-→ If cache hit → Redirect  
-→ If cache miss → Query DB → Store in Redis → Redirect  
+# 1️⃣1️⃣ Scaling Path
 
-Redis is used as a read-through cache to reduce database load and improve latency.
+Stage 1 (\~1M URLs): - Single DB + Redis
 
----
+Stage 2 (\~10M URLs): - Add read replicas - Async click processing
 
-## Redis Failure Handling
+Stage 3 (\~100M URLs): - DB sharding - Distributed ID generation - Redis
+Cluster - CDN for global redirect
 
-### What happens if Redis crashes?
+------------------------------------------------------------------------
 
-- Cache becomes unavailable
-- All redirect requests fall back to the database
-- Latency increases
-- System remains functional (graceful degradation)
+# 1️⃣2️⃣ Monitoring Strategy
 
-Redis is a performance optimization layer — the database remains the source of truth.
+Monitor:
 
----
+API: - Requests per second - P95 latency - Error rate
 
-## Cache TTL Strategy
+Redis: - Cache hit ratio - Memory usage
 
-TTL (Time To Live) determines how long a key stays in cache.
+DB: - Query latency - Slow queries
 
-Why use TTL?
+Business: - Click volume - Rate limit violations
 
-- Prevent stale data
-- Control memory usage
-- Automatically clean unused entries
+------------------------------------------------------------------------
 
-For URL shorteners:
-- URLs rarely change
-- TTL can be long (1 hour to 24 hours depending on traffic pattern)
+# ✅ Current Capabilities
 
-Example:
-redis_client.set(short_code, original_url, ex=3600)
+✔ Layered architecture\
+✔ Redis caching\
+✔ Expiration logic\
+✔ Async click tracking\
+✔ Configurable rate limiting\
+✔ Indexed database\
+✔ Health endpoint\
+✔ System design documentation
 
-This stores the key for 1 hour.
+------------------------------------------------------------------------
 
----
-
-## Hot Key Problem
-
-A hot key occurs when one short URL becomes extremely popular (viral link).
-
-Problem:
-- Millions of requests hit the same Redis key
-- That Redis instance becomes a bottleneck
-
-Possible Solutions:
-- Redis replication
-- Distributed cache cluster
-- Load balancing
-- Key partitioning strategies
-
----
-
-## Click Count Update Strategy
-
-Should click_count update be synchronous?
-
-No.
-
-If we increment the database counter on every redirect:
-- High write load
-- Increased latency
-- DB becomes bottleneck
-
-Better approach:
-- Push click event to a background queue
-- Batch process updates asynchronously
-
-This keeps the redirect path fast and scalable.
-
----
-
-## Summary
-
-This phase introduces:
-
-- Redis caching for read-heavy optimization
-- TTL strategy for memory control
-- Graceful degradation when cache fails
-- Hot key awareness
-- Asynchronous thinking for analytics
-
-The system is now transitioning from a simple CRUD application to a scalable backend service.
-
-
-This project is designed to reflect production-grade system design and
-backend engineering principles.
+This project demonstrates production-grade backend engineering and
+scalable system design principles.

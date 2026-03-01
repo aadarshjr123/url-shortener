@@ -1,93 +1,65 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.orm import Session
-from pydantic import BaseModel, HttpUrl
-from typing import Optional
-from fastapi.responses import RedirectResponse
-from datetime import datetime
-from .database import SessionLocal, engine, Base
-from .models import URL
-from .utils import encode_base62
-from .cache import redis_client
+from fastapi import FastAPI,Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from .database import Base, engine
+from .routers.url_router import router
+from app.logging_config import setup_logging
+import logging
+import time
+from prometheus_fastapi_instrumentator import Instrumentator
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
-Base.metadata.create_all(bind=engine)
 
-class URLRequest(BaseModel):
-    original_url: HttpUrl
-    expires_at: Optional[datetime] = None
+Instrumentator().instrument(app).expose(app)
+app.include_router(router)
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://urlshortener-nu-ten.vercel.app"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+setup_logging()
+logger = logging.getLogger(__name__)
 
-def increment_click(db: Session, short_code: str):
-    db.query(URL).filter(URL.short_code == short_code).update({URL.click_count: URL.click_count +1})
-    db.commit() 
-
-def check_rate_limit(client_ip:str):
-    key=f"rate_limit:{client_ip}"
-
-    request_count = redis_client.incr(key)
-    if request_count == 1:
-        redis_client.expire(key,60)
-
-    if request_count > 10:
-        raise HTTPException(status_code=429,details="Too many requests. Try again later.")
-
-
-@app.post("/shorten/")
-def shorten_url(url_request: URLRequest,request: Request, db: Session = Depends(get_db)):
-
-    client_ip = request.client.host
-    check_rate_limit(client_ip)
-    
-    new_url = URL(
-        original_url=str(url_request.original_url),
-        expires_at=url_request.expires_at
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled error: {str(exc)}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
     )
 
-    db.add(new_url)
-    db.flush()
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
 
-    short_code = encode_base62(new_url.id)
-    new_url.short_code = short_code
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000"
 
-    db.commit()
-    db.refresh(new_url)
+    return response
 
-    return {"short_url": f"http://localhost:8000/{short_code}"}
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start_time = time.time()
 
+    response = await call_next(request)
 
-@app.get("/{short_code}")
-def redirect_url(short_code: str,background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    process_time = time.time() - start_time
 
+    logger.info(
+        f"{request.method} {request.url.path} "
+        f"Status: {response.status_code} "
+        f"Time: {process_time:.4f}s"
+    )
 
-    # 1️⃣ Check Redis
-    cached_url = redis_client.get(short_code)
-    if cached_url:
-        return RedirectResponse(url=cached_url)
+    return response
 
-    # 2️⃣ DB Lookup
-    url_entry = db.query(URL).filter(URL.short_code == short_code).first()
-
-    if not url_entry:
-        raise HTTPException(status_code=404, detail="Short URL not found")
-
-    # 3️⃣ Expiration Check
-    if url_entry.expires_at and url_entry.expires_at < datetime.utcnow():
-        raise HTTPException(status_code=410, detail="URL has expired")
-
-    # 4️⃣ Smart Cache TTL
-    if url_entry.expires_at:
-        ttl = int((url_entry.expires_at - datetime.utcnow()).total_seconds())
-        if ttl > 0:
-            redis_client.set(short_code, url_entry.original_url, ex=ttl)
-    else:
-        redis_client.set(short_code, url_entry.original_url, ex=3600)
-
-    background_tasks.add_task(increment_click,db,short_code)
-    return RedirectResponse(url=url_entry.original_url)
+@app.get("/health")
+def health():
+    return {"status": "ok"}
