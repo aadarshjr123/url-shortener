@@ -1,210 +1,142 @@
-# 🚀 Scalable URL Shortener
+# 🚀 URL Shortener --- Because Long URLs Deserve a Break
 
-A production-grade URL shortening service built with scalability,
-performance, and system design principles in mind.
+Welcome to my full-stack URL Shortener project --- a clean,
+production-style backend powered by FastAPI and a modern React + Vite
+frontend.
 
-This project is intentionally designed as a read-heavy distributed
-system, optimized for low-latency redirects and horizontal scalability.
-
-------------------------------------------------------------------------
-
-# 1️⃣ Problem Statement
-
-Design and implement a scalable URL shortening service that:
-
--   Generates compact, unique short URLs
--   Redirects users with minimal latency
--   Handles millions of redirect requests
--   Scales horizontally
--   Maintains high availability
--   Optimizes read-heavy workloads
-
-This system prioritizes redirect performance, since one shortened link
-may be accessed millions of times.
+Yes, it shortens URLs.\
+But more importantly, it demonstrates architecture, scalability
+thinking, and real-world backend practices.
 
 ------------------------------------------------------------------------
 
-# 2️⃣ System Characteristics
+## 🧠 Why This Project Exists
 
--   Write-light system (shorten once)
--   Read-heavy system (redirect many times)
--   Latency-sensitive
--   High concurrency environment
--   Stateless API layer
+Because:
 
-Example:
+-   Long URLs are ugly.
+-   Clean architecture is beautiful.
 
-1 URL shortened once\
-→ 2 million redirect requests
-
-Redirect path is the critical performance path.
+This project focuses on: - Proper backend structure - Database
+migrations - Service layers - Clean frontend architecture - Dockerized
+environment - Real-world production patterns
 
 ------------------------------------------------------------------------
 
-# 3️⃣ High-Level Architecture
+## 🏗️ Architecture Overview
 
-Client\
-↓\
-Load Balancer\
-↓\
-FastAPI Application (Stateless)\
-↓\
----------------------------------\
-Redis (Cache Layer)\
-PostgreSQL (Primary Database)\
----------------------------------
+    Frontend (React + Vite)
+            ↓
+    Backend (FastAPI + Gunicorn)
+            ↓
+    PostgreSQL
+            ↓
+    Redis (Caching layer)
 
-------------------------------------------------------------------------
-
-## 🔹 Shorten Flow (Write Path)
-
-Client → API → Rate Limit Check\
-→ Insert into DB\
-→ Generate ID\
-→ Base62 Encode\
-→ Update short_code\
-→ Return short URL
+Everything runs inside Docker like a civilized engineer.
 
 ------------------------------------------------------------------------
 
-## 🔹 Redirect Flow (Read Path --- Critical)
+## 🛠️ Tech Stack
 
-Client → API → Rate Limit Check\
-→ Check Redis Cache\
-→ Cache Hit → Redirect\
-→ Cache Miss → DB Lookup → Cache → Redirect\
-→ Async Click Increment
+### Backend
 
-------------------------------------------------------------------------
+-   FastAPI
+-   SQLAlchemy
+-   Alembic (Database migrations)
+-   PostgreSQL
+-   Redis
+-   Gunicorn + Uvicorn
+-   Docker
 
-# 4️⃣ Tech Stack
+### Frontend
 
--   FastAPI --- API layer\
--   PostgreSQL --- Persistent storage\
--   Redis --- Cache + rate limiting\
--   SQLAlchemy --- ORM\
--   Uvicorn --- ASGI server
-
-Architecture Layers:
-
-Router Layer → HTTP\
-Service Layer → Business Logic\
-Repository Layer → DB Access
+-   React
+-   TypeScript
+-   Vite
+-   Axios (API layer separation)
 
 ------------------------------------------------------------------------
 
-# 5️⃣ ID Generation Strategy
+## 📂 Project Structure (Clean & Scalable)
 
-Auto-increment primary key + Base62 encoding.
+### Backend
 
-Why: - Guaranteed uniqueness - No collision handling - Compact
-representation - Future sharding support
+    app/
+     ├── api/
+     ├── services/
+     ├── repositories/
+     ├── schemas/
+     ├── db/
+     ├── core/
+     └── main.py
 
-Example:
+No spaghetti. Only layered architecture.
 
-Database ID: 12500\
-Base62(12500) → dnh
+### Frontend
 
-------------------------------------------------------------------------
+    src/
+     ├── api/
+     ├── services/
+     ├── pages/
+     ├── types/
+     └── App.tsx
 
-# 6️⃣ Database Schema
-
-Table: urls
-
--   id (BIGINT, Primary Key)
--   short_code (VARCHAR(10), UNIQUE, INDEXED)
--   original_url (TEXT, NOT NULL)
--   created_at (TIMESTAMP, DEFAULT NOW())
--   expires_at (TIMESTAMP, nullable)
--   click_count (BIGINT, DEFAULT 0)
-
-Indexing short_code ensures O(log N) lookup performance.
-
-------------------------------------------------------------------------
-
-# 7️⃣ Caching Strategy (Redis)
-
-Read-through cache:
-
--   First request → DB → Cache
--   Subsequent requests → Redis
-
-TTL Strategy: - If expires_at exists → TTL = remaining time - Otherwise
-→ Default 1 hour
-
-Ensures no stale data and memory control.
+Because scalable apps don't live inside `App.tsx`.
 
 ------------------------------------------------------------------------
 
-# 8️⃣ Rate Limiting
+## ⚡ How To Run
 
-Redis-based atomic counters.
+### 1️⃣ Start Backend (Docker)
 
--   Configurable per route
--   Separate limits for shorten and redirect
--   Returns 429 Too Many Requests
--   Includes Retry-After header
+``` bash
+docker-compose up --build
+```
 
-Protects system stability.
+Backend runs at:
 
-------------------------------------------------------------------------
+    http://localhost:8080
 
-# 9️⃣ Async Click Tracking
+Swagger docs:
 
-Click count updates run in background tasks.
-
-Benefits: - Redirect path remains fast - Write-heavy operations
-isolated - Easily extendable to queue-based processing
+    http://localhost:8080/docs
 
 ------------------------------------------------------------------------
 
-# 🔟 Failure Handling
+Frontend runs at:
 
-Redis Failure: - Falls back to DB - Higher latency but functional
-
-PostgreSQL Failure: - Writes fail - Redirect may fail if not cached
-
-API Failure: - Load balancer routes traffic to healthy instances
+    http://localhost:3000
 
 ------------------------------------------------------------------------
 
-# 1️⃣1️⃣ Scaling Path
+## 🧪 Features
 
-Stage 1 (\~1M URLs): - Single DB + Redis
-
-Stage 2 (\~10M URLs): - Add read replicas - Async click processing
-
-Stage 3 (\~100M URLs): - DB sharding - Distributed ID generation - Redis
-Cluster - CDN for global redirect
-
-------------------------------------------------------------------------
-
-# 1️⃣2️⃣ Monitoring Strategy
-
-Monitor:
-
-API: - Requests per second - P95 latency - Error rate
-
-Redis: - Cache hit ratio - Memory usage
-
-DB: - Query latency - Slow queries
-
-Business: - Click volume - Rate limit violations
+-   🔗 Shorten long URLs
+-   🗃️ Store URLs in PostgreSQL
+-   ⚡ Redis caching support
+-   🧱 Clean service/repository architecture
+-   🔄 Alembic migrations
+-   🐳 Fully Dockerized
+-   📦 Production-style backend boot with Gunicorn
 
 ------------------------------------------------------------------------
 
-# ✅ Current Capabilities
+## 🚧 What I Would Improve Next
 
-✔ Layered architecture\
-✔ Redis caching\
-✔ Expiration logic\
-✔ Async click tracking\
-✔ Configurable rate limiting\
-✔ Indexed database\
-✔ Health endpoint\
-✔ System design documentation
+If this were production:
+
+-   Add structured logging
+-   Add health checks & monitoring
+-   Add CI/CD pipeline
+-   Add unit & integration tests
 
 ------------------------------------------------------------------------
 
-This project demonstrates production-grade backend engineering and
-scalable system design principles.
+## 💬 Final Note
+
+This project might shorten URLs.
+
+But more importantly --- it demonstrates that I don't shorten
+engineering quality.
+

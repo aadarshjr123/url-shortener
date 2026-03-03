@@ -3,12 +3,14 @@ import os
 
 from sqlalchemy import engine_from_config, pool,create_engine
 from alembic import context
-from app.models import Base
+from app.db.base import Base
+from app.db import models
+from app.core.config import settings
 
 
 config = context.config
 
-database_url = os.getenv("DATABASE_URL")
+database_url = settings.DATABASE_URL
 
 if not database_url:
     raise RuntimeError("DATABASE_URL is not set")
